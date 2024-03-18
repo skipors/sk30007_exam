@@ -1,0 +1,274 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+#Loading the data 
+```{r}
+library(readxl)
+data <- read_xlsx("data_exam.xlsx")
+```
+
+#Loading the libraries 
+```{r}
+library(lavaan)
+library(psych)
+library(dplyr)
+library(MVN)
+library(stdidx)
+library(semPlot)
+library(car)
+library(apaTables)
+```
+
+#Correlations all items
+```{r}
+#Correlations with CIs, means, sd for all items
+apaTables::apa.cor.table(data, filename = "exam_corrs.doc", table.number = 3, landscape = TRUE)
+
+#Visualizing correlations and distributions 
+pairs.panels(data) 
+```
+
+#Checking uni- and multi-variate normality 
+```{r}
+#Creating a new dataset first as I get the error about the singularity if run the data as it is 
+
+data_exam <- mutate(data, ep = idx_mean(Emergency_preparedness_1, Emergency_preparedness_2, 
+                                             Emergency_preparedness_3, Emergency_preparedness_4)) 
+data_exam <- mutate(data_exam, societal_risk = idx_mean(Societal_risk_1, Societal_risk_2, 
+                                                        Societal_risk_3, Societal_risk_4, Societal_risk_5))
+data_exam <- mutate(data_exam, confidence = idx_mean(Emotions_4, Emotions_5, Emotions_6))
+
+#New dataset with the indexed items only 
+data_exam <-  data_exam |> 
+select(ep, societal_risk, confidence)
+
+#Correlations for indexed items
+apa.cor.table(data_exam, filename = "exam_corrs1.doc", table.number = 3, landscape = TRUE)
+pairs.panels(data_exam)
+
+#Data diagnostics 
+normality_check <- mvn(data = data_exam, 
+             mvnTest = "mardia",
+             univariateTest = "AD",
+             univariatePlot = "histogram",
+             multivariatePlot = "qq", 
+             multivariateOutlierMethod = "adj", 
+             showOutliers = TRUE, 
+             showNewData = FALSE)
+
+#Multivariate Normality 
+normality_check$multivariateNormality
+
+#Univariate Normality 
+normality_check$univariateNormality
+
+#Descriptives
+normality_check$Descriptives
+
+#Multivariate Outliers
+normality_check$multivariateOutliers #all outliers are within range and contain  reasonable values, 
+#seemingly no weird or careless replies
+```
+
+#Correlations between factors 
+```{r}
+apaTables::apa.cor.table(data_exam, filename = "exam_corrs2.doc", table.number = 3, landscape = TRUE)
+```
+
+#Gender differences 
+```{r}
+#Preparing the data and variables
+g <- data_exam  |> 
+  select(ep, societal_risk, confidence)
+
+g1 <- data  |> 
+  select(Gender)
+
+data_gender <- cbind(g, g1)
+
+data_gender$Gender <- factor(data_gender$Gender, levels = c(1:3), labels = c("female", "male", "other"))
+data_gender <- subset(data_gender, Gender != "other")
+data_gender$Gender <- droplevels(data_gender$Gender)
+
+#Plotting the gender differences in EP importance 
+library(ggplot2)
+library(gghalves)
+g_ep_plot <- ggplot(data = data_gender, 
+                    aes(x = Gender, y = ep, fill = Gender)) +
+  geom_half_violin(side = 'r', color = NA, alpha = .35) +
+  geom_half_boxplot(side = 'r', errorbar.draw = FALSE, width = .2, linewidth = .5) +
+  geom_half_point_panel(side = 'l', shape = 21, size = 2.5, color = 'white') +
+  theme_classic() + 
+  theme(legend.position = 'bottom')
+
+g_ep_plot
+
+#Plotting the gender differences in Societal risk  
+g_sr_plot <- ggplot(data = data_gender, 
+                    aes(x = Gender, y = societal_risk, fill = Gender)) +
+  geom_half_violin(side = 'r', color = NA, alpha = .35) +
+  geom_half_boxplot(side = 'r', errorbar.draw = FALSE, width = .2, linewidth = .5) +
+  geom_half_point_panel(side = 'l', shape = 21, size = 2.5, color = 'white') +
+  theme_classic() + 
+  theme(legend.position = 'bottom')
+
+g_sr_plot
+
+#Plotting the gender differences in Confidence/Control  
+g_conf_plot <- ggplot(data = data_gender, 
+                    aes(x = Gender, y = confidence, fill = Gender)) +
+  geom_half_violin(side = 'r', color = NA, alpha = .35) +
+  geom_half_boxplot(side = 'r', errorbar.draw = FALSE, width = .2, linewidth = .5) +
+  geom_half_point_panel(side = 'l', shape = 21, size = 2.5, color = 'white') +
+  theme_classic() + 
+  theme(legend.position = 'bottom')
+
+g_conf_plot
+```
+
+
+#CFA and reliability 
+```{r}
+#CFA model 1
+m_m <- 'EP =~ Emergency_preparedness_1 + Emergency_preparedness_2 + Emergency_preparedness_3 +  Emergency_preparedness_4;
+SR =~ Societal_risk_1 + Societal_risk_2 + Societal_risk_3 + Societal_risk_4 + Societal_risk_5;
+Confident =~ Emotions_4 + Emotions_5 + Emotions_6;'
+
+m_m_fit <- cfa(m_m, data = data, estimator = "MLR", std.lv = TRUE)
+summary(m_m_fit, standardized = TRUE, fit.measures = TRUE, rsquare = TRUE)
+
+#CFA model 2 w/out SR Item 5
+m_m1 <- 'EP =~ Emergency_preparedness_1 + Emergency_preparedness_2 + Emergency_preparedness_3 +  Emergency_preparedness_4;
+SR =~ Societal_risk_1 + Societal_risk_2 + Societal_risk_3 + Societal_risk_4;
+Confident =~ Emotions_4 + Emotions_5 + Emotions_6;'
+
+m_m1_fit <- cfa(m_m1, data = data, estimator = "MLR", std.lv = TRUE)
+summary(m_m1_fit, standardized = TRUE, fit.measures = TRUE, rsquare = TRUE)
+
+#Reliability measures
+EP <- data[c("Emergency_preparedness_1", "Emergency_preparedness_2", "Emergency_preparedness_3", "Emergency_preparedness_4")]
+SR <- data[c("Societal_risk_1", "Societal_risk_2", "Societal_risk_3", "Societal_risk_4", "Societal_risk_5")]
+Confident <- data[c("Emotions_4", "Emotions_5", "Emotions_6")]
+
+reliability(EP)
+reliability(SR)
+reliability(Confident)
+```
+
+
+#Fitting the models 
+```{r}
+#Model 1
+M1 <- ('
+EP =~ Emergency_preparedness_1 + Emergency_preparedness_2 + Emergency_preparedness_3 +  Emergency_preparedness_4
+SR =~ Societal_risk_1 + Societal_risk_2 + Societal_risk_3 + Societal_risk_4 + Societal_risk_5
+Confident =~ Emotions_4 + Emotions_5 + Emotions_6
+
+EP ~ SR
+SR ~ Confident
+EP ~~ Confident
+' )
+
+fit_M1 <- sem(M1, data = data, estimator = 'MLM')
+summary(fit_M1, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE, ci = TRUE) 
+semPaths(fit_M1, whatLabels = 'std', rotation = 2)
+#semPaths(fit_M1, rotation = 2, nCharNodes = 4, nCharEdges = 4, residuals = FALSE, levels = c(1,3,4,5)) plot for the Method section
+         
+#Trying model w/ Emotions constrained
+M1a <- ('
+EP =~ Emergency_preparedness_1 + Emergency_preparedness_2 + Emergency_preparedness_3 + Emergency_preparedness_4
+SR =~ Societal_risk_1 + Societal_risk_2 + Societal_risk_3 + Societal_risk_4 + Societal_risk_5
+Confident =~ Emotions_4 + Emotions_5 + Emotions_6
+
+EP ~ SR
+SR ~ Confident
+EP ~~ 0*Confident
+' )
+fit_M1a <- sem(M1a, data = data, estimator = 'MLM')
+summary(fit_M1a, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE, ci = TRUE) 
+semPaths(fit_M1a, whatLabels = 'std', rotation = 2)
+```
+#Checking residuals for the models 
+```{r}
+#Unconstrained model first 
+t1 <- residuals(fit_M1, type = "cor")$cov
+print(t1)   #several corr are more than .10, not perfect but acceptable 
+
+res1 <- residuals(fit_M1, type = "cor")$cov #a bit weird looking but overall fine, the tails are a bit off
+res1[upper.tri(res1, diag = TRUE)] <- NA
+v1 <- as.vector(res1)
+v2 <- v1[!is.na(v1)]
+qqPlot(v2, id = FALSE, col = "#4361ee", col.lines = "yellow4", cex = 1.2, lwd = 2.3, grid = FALSE)
+
+#Constrained model 
+t2 <- residuals(fit_M1a, type = "cor")$cov
+print(t2)   #several corr are more than .10, not perfect but acceptable 
+
+res2 <- residuals(fit_M1a, type = "cor")$cov #a bit weird looking but overall fine, the tails are a bit off
+res2[upper.tri(res2, diag = TRUE)] <- NA
+v1 <- as.vector(res2)
+v2 <- v1[!is.na(v1)]
+qqPlot(v2, id = FALSE, col = "#ee6c4d", col.lines = "#98c1d9", cex = 1.2, lwd = 2.3, grid = FALSE)
+```
+
+#Comparing the models
+```{r}
+anova(fit_M1, fit_M1a)  
+```
+
+#Additional models to test 
+##Model 2
+```{r}
+M2 <- ('
+EP =~ Emergency_preparedness_1 + Emergency_preparedness_2 + Emergency_preparedness_3 + Emergency_preparedness_4
+SR =~ Societal_risk_1 + Societal_risk_2 + Societal_risk_3 + Societal_risk_4 + Societal_risk_5
+Confident =~ Emotions_4 + Emotions_5 + Emotions_6
+
+EP ~ SR
+SR ~ Confident
+EP ~ Confident
+' )
+
+fit_M2 <- sem(M2, data = data, estimator = 'MLM')
+summary(fit_M2, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE, ci = TRUE)
+```
+
+##Model 3 
+```{r}
+M3 <- ('
+EP =~ Emergency_preparedness_1 + Emergency_preparedness_2 + Emergency_preparedness_3 +  Emergency_preparedness_4
+SR =~ Societal_risk_1 + Societal_risk_2 + Societal_risk_3 + Societal_risk_4 + Societal_risk_5
+Confident =~ Emotions_4 + Emotions_5 + Emotions_6
+
+EP ~ Confident 
+Confident ~ SR 
+EP ~~ 0*SR
+' )
+fit_M3<- sem(M3, data = data, estimator = 'MLM')
+summary(fit_M3, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE) 
+semPaths(fit_M3, whatLabels = 'std', rotation = 2)
+```
+
+##Model 4 
+```{r}
+M4 <- ('
+EP =~ Emergency_preparedness_1 + Emergency_preparedness_2 + Emergency_preparedness_3 +  Emergency_preparedness_4
+SR =~ Societal_risk_1 + Societal_risk_2 + Societal_risk_3 + Societal_risk_4 + Societal_risk_5
+Confident =~ Emotions_4 + Emotions_5 + Emotions_6
+
+SR ~ EP 
+EP ~ Confident 
+EP ~~ 0*Confident
+' )
+fit_M4 <- sem(M4, data = data, estimator = 'MLM')
+summary(fit_M4, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE) 
+semPaths(fit_M4, whatLabels = 'std', rotation = 2)
+```
+
+
+#Modification indices for Model 1
+```{r}
+modindices(fit_M1, sort = TRUE, maximum.number = 5)
+```
+
